@@ -1,54 +1,57 @@
 package main
 
 import (
+	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+
+	"latihan-repository/app/model"
 )
 
 func ok(c *fiber.Ctx, message string, data any) error {
-	return c.Status(fiber.StatusOK).JSON(WebResponse{
+	return c.Status(fiber.StatusOK).JSON(model.WebResponse{
 		Success: true, Message: message, Data: data,
 	})
 }
 
-func okList(c *fiber.Ctx, message string, data any, meta *Meta) error {
-	return c.Status(fiber.StatusOK).JSON(WebResponse{
+func okList(c *fiber.Ctx, message string, data any, meta *model.Meta) error {
+	return c.Status(fiber.StatusOK).JSON(model.WebResponse{
 		Success: true, Message: message, Data: data, Meta: meta,
 	})
 }
 
 func created(c *fiber.Ctx, message string, data any, location string) error {
-	c.Set("Location", location) // memberi tahu klien di mana sumber daya baru berada
-	return c.Status(fiber.StatusCreated).JSON(WebResponse{
+	c.Set("Location", location)
+	return c.Status(fiber.StatusCreated).JSON(model.WebResponse{
 		Success: true, Message: message, Data: data,
 	})
 }
 
 func noContent(c *fiber.Ctx) error {
-	return c.SendStatus(fiber.StatusNoContent) // 204: berhasil, tanpa body
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 func fail(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(WebResponse{Success: false, Message: message})
+	return c.Status(status).JSON(model.WebResponse{Success: false, Message: message})
 }
 
 func failValidation(c *fiber.Ctx, errs map[string]string) error {
-	return c.Status(fiber.StatusUnprocessableEntity).JSON(WebResponse{
+	return c.Status(fiber.StatusUnprocessableEntity).JSON(model.WebResponse{
 		Success: false, Message: "validasi gagal", Errors: errs,
 	})
 }
 
 // Daftar putih field yang boleh dipakai untuk mengurutkan.
 var allowedSort = map[string]bool{
-	"id": true, "nim": true, "name": true, "created_at": true,
+	"id": true, "nim": true, "name": true, "grade": true, "created_at": true,
 }
 
 // parseListQuery membaca query string dan memberi nilai bawaan yang aman.
-// Aturan pentingnya: masukan dari klien tidak pernah dipercaya begitu saja.
-func parseListQuery(c *fiber.Ctx) ListQuery {
-	q := ListQuery{
+func parseListQuery(c *fiber.Ctx) model.ListQuery {
+	q := model.ListQuery{
 		Page:   c.QueryInt("page", 1),
 		Limit:  c.QueryInt("limit", 10),
 		Search: strings.TrimSpace(c.Query("search")),
@@ -62,10 +65,10 @@ func parseListQuery(c *fiber.Ctx) ListQuery {
 	if q.Limit < 1 {
 		q.Limit = 10
 	}
-	if q.Limit > 100 { // batas atas wajib ada
+	if q.Limit > 100 {
 		q.Limit = 100
 	}
-	if !allowedSort[q.Sort] { // daftar putih, bukan daftar hitam
+	if !allowedSort[q.Sort] {
 		q.Sort = "id"
 	}
 	if q.Order != "desc" {
@@ -79,4 +82,27 @@ func parseListQuery(c *fiber.Ctx) ListQuery {
 	}
 
 	return q
+}
+
+func paramID(c *fiber.Ctx) (int, bool) {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil || id < 1 {
+		return 0, false
+	}
+	return id, true
+}
+
+// reqCtx memberi batas waktu untuk setiap operasi basis data.
+// Tanpa batas waktu, satu query yang menggantung dapat menahan koneksi
+// selamanya dan lama-lama menghabiskan seluruh isi pool.
+func reqCtx(c *fiber.Ctx) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(c.UserContext(), 5*time.Second)
+}
+
+// cocokPencarian dipertahankan untuk kompatibilitas jika diperlukan,
+// namun pencarian utama kini dikerjakan di SQL via ILIKE.
+func cocokPencarian(s model.Student, kata string) bool {
+	kata = strings.ToLower(kata)
+	return strings.Contains(strings.ToLower(s.NIM), kata) ||
+		strings.Contains(strings.ToLower(s.Name), kata)
 }
