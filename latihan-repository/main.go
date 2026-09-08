@@ -2,123 +2,98 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
-	"strings"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
-
 	"latihan-repository/app/repository"
+	"latihan-repository/app/service"
 	"latihan-repository/config"
 	"latihan-repository/database"
 )
 
-var metodeBerbody = map[string]bool{
-	fiber.MethodPost:  true,
-	fiber.MethodPut:   true,
-	fiber.MethodPatch: true,
-}
-
-// requireJSON menolak request berisi body yang Content-Type-nya bukan JSON.
-func requireJSON(c *fiber.Ctx) error {
-	if metodeBerbody[c.Method()] {
-		ct := c.Get("Content-Type")
-		if !strings.HasPrefix(ct, fiber.MIMEApplicationJSON) {
-			return fail(
-				c,
-				fiber.StatusUnsupportedMediaType,
-				"Content-Type harus application/json",
-			)
-		}
-	}
-	return c.Next()
-}
-
 func main() {
-	// 1. Konfigurasi
+	// 1. Konfigurasi dan logger
 	config.LoadEnv()
+	logger := config.NewLogger()
 
-	// 2. Koneksi basis data
+	// 2. Database
 	pool, err := database.NewPool(context.Background())
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		logger.Error(
+			"gagal terhubung ke database",
+			slog.String("error", err.Error()),
+		)
+		os.Exit(1)
 	}
+
 	defer pool.Close()
 
-	// 3. Perakitan: pool -> repository -> handler
+	// 3. Perakitan dari dalam ke luar:
+	// repository -> service
 	studentRepository := repository.NewStudentRepository(pool)
-	studentHandler := NewStudentHandler(studentRepository)
+	studentService := service.NewStudentService(studentRepository)
 
-	// 4. Aplikasi Fiber
-	app := fiber.New(fiber.Config{
-		AppName: "Praktikum Backend Lanjut - Pertemuan 3",
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			status := fiber.StatusInternalServerError
-			pesan := "terjadi kesalahan pada server"
-			if e, ok := err.(*fiber.Error); ok {
-				status = e.Code
-				pesan = e.Message
-			}
-			return fail(c, status, pesan)
-		},
-	})
+	// 4. Aplikasi
+	app := config.NewApp(
+		logger,
+		pool,
+		studentService,
+	)
 
-	// Middleware global
-	app.Use(requestid.New())
-	app.Use(logger.New(logger.Config{
-		Format: "[${time}] ${locals:requestid} ${method} ${path} ${status} ${latency}\n",
-	}))
-	app.Use(cors.New())
+	port := config.GetEnv(
+		"APP_PORT",
+		"3000",
+	)
 
-	// Endpoint root
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, World!")
-	})
+	go func() {
+		if err := app.Listen(":" + port); err != nil {
+			logger.Error(
+				"server berhenti",
+				slog.String("error", err.Error()),
+			)
 
-	// API version 1
-	api := app.Group("/api/v1")
-
-	// Health check — kini ikut memeriksa basis data (Langkah 7 modul)
-	api.Get("/health", func(c *fiber.Ctx) error {
-		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
-		defer cancel()
-
-		if err := pool.Ping(ctx); err != nil {
-			return fail(c, fiber.StatusServiceUnavailable,
-				"database tidak dapat dihubungi")
+			os.Exit(1)
 		}
-		return ok(
-			c,
-			"server dan database berjalan",
-			fiber.Map{
-				"timestamp": time.Now(),
-			},
+	}()
+
+	logger.Info(
+		"server berjalan",
+		slog.String("port", port),
+	)
+
+	// 5. Graceful shutdown
+	quit := make(chan os.Signal, 1)
+
+	signal.Notify(
+		quit,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
+
+	<-quit
+
+	logger.Info(
+		"sinyal berhenti diterima, menutup server",
+	)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+
+	defer cancel()
+
+	if err := app.ShutdownWithContext(ctx); err != nil {
+		logger.Error(
+			"gagal menutup server dengan rapi",
+			slog.String("error", err.Error()),
 		)
-	})
+	}
 
-	// Student API — sama seperti pertemuan 2, tapi handler kini pakai repository
-	s := api.Group("/students", requireJSON)
-	s.Get("/", studentHandler.List)
-	s.Get("/:id", studentHandler.Get)
-	s.Post("/", studentHandler.Create)
-	s.Put("/:id", studentHandler.Replace)
-	s.Patch("/:id", studentHandler.Patch)
-	s.Delete("/:id", studentHandler.Delete)
-
-	// Endpoint tidak dikenal
-	app.Use(func(c *fiber.Ctx) error {
-		return fail(
-			c,
-			fiber.StatusNotFound,
-			"endpoint tidak ditemukan",
-		)
-	})
-
-	port := config.GetEnv("APP_PORT", "3000")
-	fmt.Println("Server berjalan di http://localhost:" + port)
-	log.Fatal(app.Listen(":" + port))
+	logger.Info(
+		"server berhenti dengan rapi",
+	)
 }
