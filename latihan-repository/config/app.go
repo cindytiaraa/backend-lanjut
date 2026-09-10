@@ -19,6 +19,7 @@ func NewApp(
 	logger *slog.Logger,
 	pool *pgxpool.Pool,
 	studentService *service.StudentService,
+	prestasiService *service.PrestasiService,
 ) *fiber.App {
 
 	app := fiber.New(fiber.Config{
@@ -36,6 +37,7 @@ func NewApp(
 		app,
 		pool,
 		studentService,
+		prestasiService,
 	)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.

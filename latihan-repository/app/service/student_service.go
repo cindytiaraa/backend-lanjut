@@ -2,18 +2,16 @@ package service
 
 import (
 	"errors"
+	"latihan-repository/app/model"
+	"latihan-repository/app/repository"
+	"latihan-repository/helper"
 	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-
-	"latihan-repository/app/model"
-	"latihan-repository/app/repository"
-	"latihan-repository/helper"
 )
 
-// StudentService memegang dua tanggung jawab sekaligus
-// pada struktur baku mata kuliah ini:
+// StudentService :
 // menerima *fiber.Ctx (peran controller)
 // dan menjalankan business rules (peran use case).
 type StudentService struct {

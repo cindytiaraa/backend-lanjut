@@ -1,22 +1,15 @@
 package service
 
 import (
-	"strings"
-
 	"latihan-repository/app/model"
+	"strings"
 )
-
-// File ini berisi business rules MURNI:
-// tidak menyentuh fiber.Ctx,
-// tidak menyentuh database,
-// dan tidak tahu apa pun tentang HTTP.
 
 // ValidateCreate memeriksa isi permintaan pembuatan student.
 // Mengembalikan peta berisi field yang bermasalah;
 // kosong berarti lolos.
 func ValidateCreate(req model.CreateStudentRequest) map[string]string {
 	errs := map[string]string{}
-
 	if strings.TrimSpace(req.NIM) == "" {
 		errs["nim"] = "wajib diisi"
 	}
@@ -84,7 +77,6 @@ func ApplyPatch(
 			errs["grade"] = "harus antara 0-100"
 			return current, errs
 		}
-
 		current.Grade = *req.Grade
 	}
 
@@ -108,6 +100,5 @@ func CountTotalPages(total, limit int) int {
 	if limit <= 0 {
 		return 0
 	}
-
 	return (total + limit - 1) / limit
 }

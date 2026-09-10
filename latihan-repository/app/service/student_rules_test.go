@@ -1,9 +1,8 @@
 package service
 
 import (
-	"testing"
-
 	"latihan-repository/app/model"
+	"testing"
 )
 
 func TestValidateCreate(t *testing.T) {

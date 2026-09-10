@@ -36,11 +36,15 @@ func main() {
 	studentRepository := repository.NewStudentRepository(pool)
 	studentService := service.NewStudentService(studentRepository)
 
+	prestasiRepository := repository.NewPrestasiRepository(pool)
+	prestasiService := service.NewPrestasiService(prestasiRepository)
+
 	// 4. Aplikasi
 	app := config.NewApp(
 		logger,
 		pool,
 		studentService,
+		prestasiService,
 	)
 
 	port := config.GetEnv(
