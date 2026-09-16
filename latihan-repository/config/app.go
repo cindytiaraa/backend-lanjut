@@ -20,6 +20,8 @@ func NewApp(
 	pool *pgxpool.Pool,
 	studentService *service.StudentService,
 	prestasiService *service.PrestasiService,
+	authService *service.AuthService,
+	jwtManager *helper.JWTManager,
 ) *fiber.App {
 
 	app := fiber.New(fiber.Config{
@@ -38,6 +40,8 @@ func NewApp(
 		pool,
 		studentService,
 		prestasiService,
+		authService,
+		jwtManager,
 	)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.

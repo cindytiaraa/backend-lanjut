@@ -20,6 +20,8 @@ func Register(
 	pool *pgxpool.Pool,
 	studentService *service.StudentService,
 	prestasiService *service.PrestasiService,
+	authService *service.AuthService,
+	jwtManager *helper.JWTManager,
 ) {
 	// Endpoint root dari project sebelumnya.
 	app.Get("/", func(c *fiber.Ctx) error {
@@ -32,11 +34,29 @@ func Register(
 	api.Get("/health", healthCheck(pool))
 
 	// =========================
+	// AUTH
+	// =========================
+
+	auth := api.Group("/auth")
+
+	auth.Post("/register", authService.Register)
+	auth.Post("/login", middleware.LoginRateLimit(), authService.Login)
+	auth.Post("/refresh", authService.Refresh)
+	auth.Post("/logout", authService.Logout)
+
+	auth.Get(
+		"/me",
+		middleware.RequireAuth(jwtManager),
+		authService.Me,
+	)
+
+	// =========================
 	// STUDENT
 	// =========================
 
 	students := api.Group(
 		"/students",
+		middleware.RequireAuth(jwtManager),
 		middleware.RequireJSON,
 	)
 

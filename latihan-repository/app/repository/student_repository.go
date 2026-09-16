@@ -20,7 +20,7 @@ var (
 )
 
 // StudentRepository adalah KONTRAK penyimpanan data student.
-// Perhatikan: tidak ada satu pun kata "SQL" atau "postgres" di kontrak ini.
+// Warning: tidak ada satu pun kata "SQL" atau "postgres" di kontrak ini.
 type StudentRepository interface {
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
 	FindByID(ctx context.Context, id int) (model.Student, error)
@@ -29,11 +29,8 @@ type StudentRepository interface {
 	Delete(ctx context.Context, id int) error
 }
 
-// kolomUrut adalah daftar putih: pemetaan dari nilai yang boleh dikirim klien
-// ke nama kolom yang sebenarnya. ORDER BY tidak dapat memakai parameter,
-// sehingga nama kolom terpaksa disisipkan sebagai teks. Daftar putih inilah
-// satu-satunya hal yang mencegah SQL injection di titik ini.
-// Disesuaikan untuk entitas Student (modul contoh pakai User).
+// kolomUrut adalah daftar putih: pemetaan dari nilai yang boleh dikirim klien ke nama kolom yang sebenarnya. ORDER BY tidak dapat memakai parameter, sehingga nama kolom terpaksa disisipkan sebagai teks.
+// Daftar putih inilah satu-satunya hal yang mencegah SQL injection di titik ini
 var kolomUrut = map[string]string{
 	"id":         "id",
 	"nim":        "nim",
@@ -46,14 +43,13 @@ type studentPostgresRepository struct {
 	pool *pgxpool.Pool
 }
 
-// NewStudentRepository mengembalikan interface, bukan struct konkret.
+// NewStudentRepository mengembalikan interface
 func NewStudentRepository(pool *pgxpool.Pool) StudentRepository {
 	return &studentPostgresRepository{pool: pool}
 }
 
 // buildFilter menyusun bagian WHERE beserta argumennya.
-// Nilai dari klien SELALU menjadi argumen ($1, $2, ...), tidak pernah
-// disambung langsung ke dalam teks SQL.
+// Nilai dari klien SELALU menjadi argumen ($1, $2, ...), tidak pernah disambung langsung ke dalam teks SQL.
 func buildFilter(q model.ListQuery) (string, []any) {
 	where := " WHERE 1 = 1"
 	args := []any{}
@@ -82,14 +78,13 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.ListQue
 		return nil, 0, fmt.Errorf("menghitung student: %w", err)
 	}
 
-	// 2) Ambil satu halaman saja. Penyaringan, pengurutan, dan pemenggalan
-	//    dikerjakan basis data, bukan oleh Go.
+	// 2) Ambil satu halaman saja. Penyaringan, pengurutan, dan pemenggalan dikerjakan basis data, bukan oleh Go.
 	arah := "ASC"
 	if q.Order == "desc" {
 		arah = "DESC"
 	}
 
-	// Whitelist sort — jika tidak ada di map, pakai "id" (sudah divalidasi di helper, tapi double check)
+	// Whitelist sort
 	kolom, ok := kolomUrut[q.Sort]
 	if !ok {
 		kolom = "id"
@@ -164,8 +159,7 @@ func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student)
 }
 
 func (r *studentPostgresRepository) Update(ctx context.Context, s model.Student) (model.Student, error) {
-	// RETURNING mengembalikan baris hasil perubahan dalam satu perjalanan,
-	// sehingga field yang tidak ikut diubah (created_at) tetap terisi benar.
+	// RETURNING mengembalikan baris hasil perubahan dalam satu perjalanan, jadi field yang tidak ikut diubah (created_at) tetap terisi benar.
 	err := r.pool.QueryRow(ctx,
 		`UPDATE students SET nim = $1, name = $2, grade = $3, is_active = $4
 		 WHERE id = $5
@@ -199,8 +193,7 @@ func (r *studentPostgresRepository) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// isUniqueViolation memeriksa apakah error berasal dari pelanggaran
-// batasan UNIQUE. Kode 23505 adalah kode resmi PostgreSQL untuk itu.
+// isUniqueViolation memeriksa apakah error berasal dari pelanggaran batasan UNIQUE.
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
