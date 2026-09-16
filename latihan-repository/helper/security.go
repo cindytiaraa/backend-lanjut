@@ -10,6 +10,8 @@ import (
 
 const bcryptCost = 12
 
+const dummyPasswordHash = "$2a$12$LQv3c1yqBWVHxkd0LHAkCOQ0QKJQJQJQJQJQJQJQJQJQJQJQJQJ"
+
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
@@ -45,8 +47,11 @@ func SHA256Hex(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-var dummyHash = []byte("$2a$12$okNPpmIEVYuprl4JFMzlI.93TJQkIVZjuhhuVd97lVzDUz7dEaDWu")
+func VerifyDummyPassword(password string) bool {
+	const dummyHash = "$2a$12$okNPpmIEVYuprl4JFMzlI.93TJQkIVZjuhhuVd97lVzDUz7dEaDWu"
 
-func VerifyDummyPassword(plain string) {
-	_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(plain))
+	return bcrypt.CompareHashAndPassword(
+		[]byte(dummyHash),
+		[]byte(password),
+	) == nil
 }

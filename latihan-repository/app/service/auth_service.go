@@ -70,11 +70,11 @@ func (s *AuthService) Register(c *fiber.Ctx) error {
 	// Role SELALU ditentukan server.
 	// Request tidak boleh menentukan role.
 	user := model.User{
-		Username:  req.Username,
-		Email:     req.Email,
-		Password:  hashed,
-		Role:      "user",
-		IsActive:  true,
+		Username: req.Username,
+		Email:    req.Email,
+		Password: hashed,
+		Role:     "user",
+		IsActive: true,
 	}
 
 	created, err := s.users.Create(ctx, user)

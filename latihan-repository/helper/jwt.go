@@ -64,6 +64,7 @@ func (m *JWTManager) ParseAccess(tokenString string) (*AccessClaims, error) {
 		tokenString,
 		claims,
 		func(token *jwt.Token) (any, error) {
+			// WAJIB cek algoritma secara eksplisit.
 			if token.Method != jwt.SigningMethodHS256 {
 				return nil, errors.New("algoritma JWT tidak diizinkan")
 			}

@@ -16,7 +16,10 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 		authHeader := c.Get("Authorization")
 
 		if authHeader == "" {
-			c.Set("WWW-Authenticate", `Bearer realm="api"`)
+			c.Set(
+				"WWW-Authenticate",
+				`Bearer realm="api"`,
+			)
 
 			return helper.Fail(
 				c,
@@ -29,7 +32,10 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 
 		if len(parts) != 2 ||
 			!strings.EqualFold(parts[0], "Bearer") {
-			c.Set("WWW-Authenticate", `Bearer realm="api"`)
+			c.Set(
+				"WWW-Authenticate",
+				`Bearer realm="api"`,
+			)
 
 			return helper.Fail(
 				c,
@@ -38,10 +44,15 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 			)
 		}
 
-		claims, err := jwtManager.ParseAccess(parts[1])
+		tokenString := parts[1]
+
+		claims, err := jwtManager.ParseAccess(tokenString)
 
 		if err != nil {
-			c.Set("WWW-Authenticate", `Bearer realm="api"`)
+			c.Set(
+				"WWW-Authenticate",
+				`Bearer realm="api"`,
+			)
 
 			if errors.Is(err, jwt.ErrTokenExpired) {
 				return helper.Fail(
@@ -64,7 +75,10 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 			Role:     claims.Role,
 		}
 
-		c.Locals(helper.LocalsAuthUser, authUser)
+		c.Locals(
+			helper.LocalsAuthUser,
+			authUser,
+		)
 
 		return c.Next()
 	}
