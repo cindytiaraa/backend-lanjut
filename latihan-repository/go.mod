@@ -3,14 +3,11 @@ module latihan-repository
 go 1.26.5
 
 require (
-	github.com/gofiber/fiber/v2 v2.52.15
-	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/jackc/pgx/v5 v5.10.0
-	github.com/joho/godotenv v1.5.1
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-)
-
-require (
+	github.com/gofiber/fiber/v2 v2.52.15 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1// indirect
+	github.com/jackc/pgx/v5 v5.10.0 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
