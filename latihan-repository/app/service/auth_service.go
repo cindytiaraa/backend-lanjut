@@ -20,6 +20,7 @@ type AuthService struct {
 	users      repository.UserRepository
 	tokens     repository.RefreshTokenRepository
 	jwt        *helper.JWTManager
+	perms      *helper.PermissionSet
 	refreshTTL time.Duration
 }
 
@@ -27,12 +28,14 @@ func NewAuthService(
 	users repository.UserRepository,
 	tokens repository.RefreshTokenRepository,
 	jwtManager *helper.JWTManager,
+	perms *helper.PermissionSet,
 	refreshTTL time.Duration,
 ) *AuthService {
 	return &AuthService{
 		users:      users,
 		tokens:     tokens,
 		jwt:        jwtManager,
+		perms:      perms,
 		refreshTTL: refreshTTL,
 	}
 }
@@ -67,7 +70,6 @@ func (s *AuthService) Register(c *fiber.Ctx) error {
 		)
 	}
 
-	// Role SELALU ditentukan server.
 	// Request tidak boleh menentukan role.
 	user := model.User{
 		Username: req.Username,
@@ -127,8 +129,7 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	)
 
 	if err != nil {
-		// Tetap melakukan bcrypt verification agar waktu
-		// username tidak ada ≈ password salah.
+		// Tetap melakukan bcrypt verification agar waktu username tidak ada ≈ password salah.
 		helper.VerifyDummyPassword(req.Password)
 
 		return helper.Fail(
@@ -306,7 +307,10 @@ func (s *AuthService) Me(c *fiber.Ctx) error {
 		c,
 		fiber.StatusOK,
 		"profil berhasil diambil",
-		user,
+		fiber.Map{
+			"user":        user,
+			"permissions": s.perms.PermissionsOf(user.Role),
+		},
 	)
 }
 

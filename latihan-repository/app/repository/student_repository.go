@@ -13,14 +13,12 @@ import (
 )
 
 // Sentinel error: error milik lapisan repository, bukan error milik pgx.
-// Lapisan atas cukup mengenal dua ini dan tidak perlu tahu basis datanya apa.
 var (
 	ErrNotFound  = errors.New("data tidak ditemukan")
 	ErrDuplicate = errors.New("data sudah ada")
 )
 
 // StudentRepository adalah KONTRAK penyimpanan data student.
-// Warning: tidak ada satu pun kata "SQL" atau "postgres" di kontrak ini.
 type StudentRepository interface {
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
 	FindByID(ctx context.Context, id int) (model.Student, error)
@@ -29,8 +27,7 @@ type StudentRepository interface {
 	Delete(ctx context.Context, id int) error
 }
 
-// kolomUrut adalah daftar putih: pemetaan dari nilai yang boleh dikirim klien ke nama kolom yang sebenarnya. ORDER BY tidak dapat memakai parameter, sehingga nama kolom terpaksa disisipkan sebagai teks.
-// Daftar putih inilah satu-satunya hal yang mencegah SQL injection di titik ini
+// pemetaan dari nilai yang boleh dikirim klien ke nama kolom yang sebenarnya. ORDER BY tidak dapat memakai parameter, sehingga nama kolom terpaksa disisipkan sebagai teks.
 var kolomUrut = map[string]string{
 	"id":         "id",
 	"nim":        "nim",
@@ -91,7 +88,7 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.ListQue
 	}
 
 	sqlText := fmt.Sprintf(
-		`SELECT id, nim, name, grade, is_active, created_at
+		`SELECT id, nim, name, grade, is_active, owner_id, created_at
 		 FROM students%s
 		 ORDER BY %s %s
 		 LIMIT $%d OFFSET $%d`,
@@ -108,7 +105,7 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.ListQue
 	hasil := []model.Student{}
 	for rows.Next() {
 		var s model.Student
-		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.OwnerID, &s.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("membaca baris student: %w", err)
 		}
 		hasil = append(hasil, s)
@@ -124,9 +121,9 @@ func (r *studentPostgresRepository) FindByID(ctx context.Context, id int) (model
 	var s model.Student
 
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, nim, name, grade, is_active, created_at
+		`SELECT id, nim, name, grade, is_active, owner_id, created_at
 		 FROM students WHERE id = $1`, id,
-	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt)
+	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.OwnerID, &s.CreatedAt)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -142,11 +139,11 @@ func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student)
 	// RETURNING membuat id dan created_at hasil buatan basis data
 	// langsung ikut kembali, tanpa perlu query kedua.
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO students (nim, name, grade, is_active)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, created_at`,
-		s.NIM, s.Name, s.Grade, s.IsActive,
-	).Scan(&s.ID, &s.CreatedAt)
+		`INSERT INTO students (nim, name, grade, is_active, owner_id)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, owner_id, created_at`,
+		s.NIM, s.Name, s.Grade, s.IsActive, s.OwnerID,
+	).Scan(&s.ID, &s.OwnerID, &s.CreatedAt)
 
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -163,9 +160,9 @@ func (r *studentPostgresRepository) Update(ctx context.Context, s model.Student)
 	err := r.pool.QueryRow(ctx,
 		`UPDATE students SET nim = $1, name = $2, grade = $3, is_active = $4
 		 WHERE id = $5
-		 RETURNING id, nim, name, grade, is_active, created_at`,
+		 RETURNING id, nim, name, grade, is_active, owner_id, created_at`,
 		s.NIM, s.Name, s.Grade, s.IsActive, s.ID,
-	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt)
+	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.OwnerID, &s.CreatedAt)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -193,7 +190,7 @@ func (r *studentPostgresRepository) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-// isUniqueViolation memeriksa apakah error berasal dari pelanggaran batasan UNIQUE.
+// memeriksa apakah error berasal dari pelanggaran batasan UNIQUE.
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

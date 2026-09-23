@@ -22,6 +22,7 @@ func Register(
 	prestasiService *service.PrestasiService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
+	perms *helper.PermissionSet,
 ) {
 	// Endpoint root dari project sebelumnya.
 	app.Get("/", func(c *fiber.Ctx) error {
@@ -33,10 +34,7 @@ func Register(
 	// Health check
 	api.Get("/health", healthCheck(pool))
 
-	// =========================
 	// AUTH
-	// =========================
-
 	auth := api.Group("/auth")
 
 	auth.Post("/register", authService.Register)
@@ -50,27 +48,22 @@ func Register(
 		authService.Me,
 	)
 
-	// =========================
 	// STUDENT
-	// =========================
-
 	students := api.Group(
 		"/students",
 		middleware.RequireAuth(jwtManager),
 		middleware.RequireJSON,
 	)
 
-	students.Get("/", studentService.List)
+	// RBAC Student berbasis permission
+	students.Get("/", middleware.RequirePermission(perms, "student:list"), studentService.List)
 	students.Get("/:id", studentService.Get)
-	students.Post("/", studentService.Create)
+	students.Post("/", middleware.RequirePermission(perms, "student:create"), studentService.Create)
 	students.Put("/:id", studentService.Replace)
 	students.Patch("/:id", studentService.Patch)
-	students.Delete("/:id", studentService.Delete)
+	students.Delete("/:id", middleware.RequirePermission(perms, "student:delete"), studentService.Delete)
 
-	// =========================
 	// PRESTASI
-	// =========================
-
 	prestasi := api.Group(
 		"/prestasi",
 		middleware.RequireJSON,
@@ -82,10 +75,9 @@ func Register(
 	prestasi.Delete("/:id", prestasiDelete(prestasiService))
 }
 
-// =========================
+// ==========================
 // PRESTASI HANDLER
-// =========================
-
+// ==========================
 func prestasiList(s *service.PrestasiService) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		ctx, cancel := helper.RequestContext(c)
@@ -223,10 +215,7 @@ func prestasiDelete(s *service.PrestasiService) fiber.Handler {
 	}
 }
 
-// =========================
 // HEALTH CHECK
-// =========================
-
 func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(

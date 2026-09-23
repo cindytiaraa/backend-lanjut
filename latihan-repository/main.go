@@ -27,23 +27,26 @@ func main() {
 	}
 	defer pool.Close()
 
-	// =========================
 	// Repository
-	// =========================
-
 	studentRepository := repository.NewStudentRepository(pool)
-	studentService := service.NewStudentService(studentRepository)
-
 	prestasiRepository := repository.NewPrestasiRepository(pool)
-	prestasiService := service.NewPrestasiService(prestasiRepository)
-
 	userRepository := repository.NewUserRepository(pool)
 	refreshTokenRepository := repository.NewRefreshTokenRepository(pool)
+	roleRepository := repository.NewRoleRepository(pool)
 
-	// =========================
+	rawPermissions, err := roleRepository.LoadPermissions(context.Background())
+	if err != nil {
+		logger.Error("gagal memuat permission", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
+	permissions := helper.NewPermissionSet(rawPermissions)
+	logger.Info("permission dimuat", slog.Any("roles", permissions.KnownRoles()))
+
+	studentService := service.NewStudentService(studentRepository, permissions)
+	prestasiService := service.NewPrestasiService(prestasiRepository)
+
 	// JWT
-	// =========================
-
 	jwtSecret := config.GetEnv("JWT_SECRET", "")
 	if jwtSecret == "" {
 		logger.Error("JWT_SECRET belum dikonfigurasi")
@@ -69,21 +72,16 @@ func main() {
 		accessTTL,
 	)
 
-	// =========================
 	// Auth Service
-	// =========================
-
 	authService := service.NewAuthService(
 		userRepository,
 		refreshTokenRepository,
 		jwtManager,
+		permissions,
 		refreshTTL,
 	)
 
-	// =========================
 	// Fiber App
-	// =========================
-
 	app := config.NewApp(
 		logger,
 		pool,
@@ -91,6 +89,7 @@ func main() {
 		prestasiService,
 		authService,
 		jwtManager,
+		permissions,
 	)
 
 	port := config.GetEnv("APP_PORT", "3000")
@@ -109,10 +108,7 @@ func main() {
 		slog.String("port", port),
 	)
 
-	// =========================
 	// Graceful Shutdown
-	// =========================
-
 	stop := make(chan os.Signal, 1)
 
 	signal.Notify(

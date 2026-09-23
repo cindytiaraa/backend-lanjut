@@ -8,6 +8,7 @@ type Student struct {
 	Name      string    `json:"name"`
 	Grade     float64   `json:"grade"`
 	IsActive  bool      `json:"is_active"`
+	OwnerID   int       `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -34,7 +35,6 @@ type PatchStudentRequest struct {
 	IsActive *bool    `json:"is_active,omitempty"`
 }
 
-// Amplop response — sama seperti pertemuan 2, hanya pindah paket
 type WebResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -59,8 +59,7 @@ type ListQuery struct {
 	IsActive *bool
 }
 
-// Offset menghitung berapa baris yang dilewati untuk halaman ini.
-// Dipakai langsung oleh SQL LIMIT/OFFSET (Langkah 4 modul).
+// menghitung berapa baris yang dilewati untuk halaman ini.
 func (q ListQuery) Offset() int {
 	return (q.Page - 1) * q.Limit
 }

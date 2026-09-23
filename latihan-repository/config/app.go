@@ -12,9 +12,7 @@ import (
 	"latihan-repository/route"
 )
 
-// NewApp merakit aplikasi:
-// membuat instance Fiber, memasang middleware,
-// lalu mendaftarkan route.
+// merakit aplikasi: membuat instance Fiber, memasang middleware, lalu mendaftarkan route.
 func NewApp(
 	logger *slog.Logger,
 	pool *pgxpool.Pool,
@@ -22,6 +20,7 @@ func NewApp(
 	prestasiService *service.PrestasiService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
+	permissions *helper.PermissionSet,
 ) *fiber.App {
 
 	app := fiber.New(fiber.Config{
@@ -42,6 +41,7 @@ func NewApp(
 		prestasiService,
 		authService,
 		jwtManager,
+		permissions,
 	)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.
@@ -56,7 +56,6 @@ func NewApp(
 	return app
 }
 
-// newErrorHandler adalah jaring pengaman terakhir.
 func newErrorHandler(logger *slog.Logger) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		status := fiber.StatusInternalServerError

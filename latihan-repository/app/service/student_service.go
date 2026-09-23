@@ -11,16 +11,15 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// StudentService :
-// menerima *fiber.Ctx (peran controller)
-// dan menjalankan business rules (peran use case).
+// menerima *fiber.Ctx (peran controller) dan menjalankan business rules (peran use case).
 type StudentService struct {
-	repo repository.StudentRepository
+	repo  repository.StudentRepository
+	perms *helper.PermissionSet
 }
 
-// NewStudentService menerima INTERFACE, bukan struct konkret.
-func NewStudentService(repo repository.StudentRepository) *StudentService {
-	return &StudentService{repo: repo}
+// menerima INTERFACE, bukan struct konkret.
+func NewStudentService(repo repository.StudentRepository, perms *helper.PermissionSet) *StudentService {
+	return &StudentService{repo: repo, perms: perms}
 }
 
 func (s *StudentService) List(c *fiber.Ctx) error {
@@ -65,6 +64,11 @@ func (s *StudentService) Get(c *fiber.Ctx) error {
 		)
 	}
 
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+
 	student, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return translateError(
@@ -72,6 +76,10 @@ func (s *StudentService) Get(c *fiber.Ctx) error {
 			err,
 			"gagal mengambil data student",
 		)
+	}
+
+	if !CanAccessStudent(current, student.OwnerID, s.perms, "student:read:any") {
+		return helper.Fail(c, fiber.StatusForbidden, "tidak berhak mengakses data student lain")
 	}
 
 	return helper.Success(
@@ -99,10 +107,14 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 	req.NIM = strings.TrimSpace(req.NIM)
 	req.Name = strings.TrimSpace(req.Name)
 
-	// Business rules dipanggil,
-	// bukan ditulis ulang di controller.
+	// Business rules dipanggil
 	if errs := ValidateCreate(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
+	}
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
 	}
 
 	baru, err := s.repo.Create(ctx, model.Student{
@@ -110,6 +122,7 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 		Name:     req.Name,
 		Grade:    req.Grade,
 		IsActive: true,
+		OwnerID:  current.UserID,
 	})
 
 	if err != nil {
@@ -142,6 +155,20 @@ func (s *StudentService) Replace(c *fiber.Ctx) error {
 		)
 	}
 
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+
+	student, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return translateError(c, err, "gagal mengambil data student")
+	}
+
+	if !CanAccessStudent(current, student.OwnerID, s.perms, "student:update:any") {
+		return helper.Fail(c, fiber.StatusForbidden, "tidak berhak mengubah data student lain")
+	}
+
 	var req model.ReplaceStudentRequest
 
 	if err := c.BodyParser(&req); err != nil {
@@ -162,6 +189,7 @@ func (s *StudentService) Replace(c *fiber.Ctx) error {
 		Name:     req.Name,
 		Grade:    req.Grade,
 		IsActive: req.IsActive,
+		OwnerID:  student.OwnerID,
 	})
 
 	if err != nil {
@@ -194,6 +222,11 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 		)
 	}
 
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+
 	var req model.PatchStudentRequest
 
 	if err := c.BodyParser(&req); err != nil {
@@ -222,6 +255,10 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 			err,
 			"gagal mengambil data student",
 		)
+	}
+
+	if !CanAccessStudent(current, saatIni.OwnerID, s.perms, "student:update:any") {
+		return helper.Fail(c, fiber.StatusForbidden, "tidak berhak mengubah data student lain")
 	}
 
 	updated, errs := ApplyPatch(saatIni, req)
@@ -273,8 +310,7 @@ func (s *StudentService) Delete(c *fiber.Ctx) error {
 	return helper.NoContent(c)
 }
 
-// translateError memetakan error milik repository
-// menjadi status HTTP.
+// memetakan error milik repository menjadi status HTTP.
 func translateError(
 	c *fiber.Ctx,
 	err error,
