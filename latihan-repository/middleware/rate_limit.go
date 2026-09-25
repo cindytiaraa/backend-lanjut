@@ -41,21 +41,11 @@ func LoginRateLimit() fiber.Handler {
 		}
 
 		if attempt.count >= maxLoginAttempts {
-			remaining := int(loginWindow - now.Sub(attempt.windowStart))
-
-			if remaining < 1 {
-				remaining = 1
-			}
-
 			c.Set("Retry-After", "300")
 
 			loginMu.Unlock()
 
-			return helper.Fail(
-				c,
-				fiber.StatusTooManyRequests,
-				"terlalu banyak percobaan login",
-			)
+			return helper.TooManyRequests("terlalu banyak percobaan login")
 		}
 
 		attempt.count++

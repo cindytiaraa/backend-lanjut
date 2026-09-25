@@ -21,11 +21,7 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 				`Bearer realm="api"`,
 			)
 
-			return helper.Fail(
-				c,
-				fiber.StatusUnauthorized,
-				"token wajib disertakan",
-			)
+			return helper.Unauthorized("token wajib disertakan")
 		}
 
 		parts := strings.Fields(authHeader)
@@ -37,15 +33,10 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 				`Bearer realm="api"`,
 			)
 
-			return helper.Fail(
-				c,
-				fiber.StatusUnauthorized,
-				"format authorization tidak valid",
-			)
+			return helper.Unauthorized("format authorization tidak valid")
 		}
 
 		tokenString := parts[1]
-
 		claims, err := jwtManager.ParseAccess(tokenString)
 
 		if err != nil {
@@ -55,18 +46,10 @@ func RequireAuth(jwtManager *helper.JWTManager) fiber.Handler {
 			)
 
 			if errors.Is(err, jwt.ErrTokenExpired) {
-				return helper.Fail(
-					c,
-					fiber.StatusUnauthorized,
-					"access token kedaluwarsa",
-				)
+				return helper.Unauthorized("access token kedaluwarsa")
 			}
 
-			return helper.Fail(
-				c,
-				fiber.StatusUnauthorized,
-				"access token tidak valid",
-			)
+			return helper.Unauthorized("access token tidak valid")
 		}
 
 		authUser := model.AuthUser{

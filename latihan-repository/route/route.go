@@ -85,19 +85,10 @@ func prestasiList(s *service.PrestasiService) fiber.Handler {
 
 		data, err := s.List(ctx)
 		if err != nil {
-			return helper.Fail(
-				c,
-				fiber.StatusInternalServerError,
-				"gagal mengambil data prestasi",
-			)
+			return helper.Internal(err)
 		}
 
-		return helper.Success(
-			c,
-			fiber.StatusOK,
-			"data prestasi berhasil diambil",
-			data,
-		)
+		return helper.Success(c, fiber.StatusOK, "data prestasi berhasil diambil", data)
 	}
 }
 
@@ -105,11 +96,7 @@ func prestasiGet(s *service.PrestasiService) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id, ok := helper.ParamID(c)
 		if !ok {
-			return helper.Fail(
-				c,
-				fiber.StatusBadRequest,
-				"id tidak valid",
-			)
+			return helper.BadRequest("id tidak valid")
 		}
 
 		ctx, cancel := helper.RequestContext(c)
@@ -118,26 +105,12 @@ func prestasiGet(s *service.PrestasiService) fiber.Handler {
 		data, err := s.Get(ctx, id)
 		if err != nil {
 			if service.IsPrestasiNotFound(err) {
-				return helper.Fail(
-					c,
-					fiber.StatusNotFound,
-					"prestasi tidak ditemukan",
-				)
+				return helper.NotFound("prestasi tidak ditemukan")
 			}
-
-			return helper.Fail(
-				c,
-				fiber.StatusInternalServerError,
-				"gagal mengambil data prestasi",
-			)
+			return helper.Internal(err)
 		}
 
-		return helper.Success(
-			c,
-			fiber.StatusOK,
-			"data prestasi berhasil diambil",
-			data,
-		)
+		return helper.Success(c, fiber.StatusOK, "data prestasi berhasil diambil", data)
 	}
 }
 
@@ -146,11 +119,7 @@ func prestasiCreate(s *service.PrestasiService) fiber.Handler {
 		var req model.CreatePrestasiRequest
 
 		if err := c.BodyParser(&req); err != nil {
-			return helper.Fail(
-				c,
-				fiber.StatusBadRequest,
-				"body tidak valid",
-			)
+			return helper.BadRequest("body tidak valid")
 		}
 
 		ctx, cancel := helper.RequestContext(c)
@@ -159,23 +128,14 @@ func prestasiCreate(s *service.PrestasiService) fiber.Handler {
 		data, errs, err := s.Create(ctx, req)
 
 		if len(errs) > 0 {
-			return helper.FailValidation(c, errs)
+			return helper.Validation(errs)
 		}
 
 		if err != nil {
-			return helper.Fail(
-				c,
-				fiber.StatusInternalServerError,
-				"gagal menambahkan prestasi",
-			)
+			return helper.Internal(err)
 		}
 
-		return helper.Created(
-			c,
-			"prestasi berhasil ditambahkan",
-			data,
-			"/api/v1/prestasi/"+strconv.Itoa(data.IDPrestasi),
-		)
+		return helper.Created(c, "prestasi berhasil ditambahkan", data, "/api/v1/prestasi/"+strconv.Itoa(data.IDPrestasi))
 	}
 }
 
@@ -183,11 +143,7 @@ func prestasiDelete(s *service.PrestasiService) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		id, ok := helper.ParamID(c)
 		if !ok {
-			return helper.Fail(
-				c,
-				fiber.StatusBadRequest,
-				"id tidak valid",
-			)
+			return helper.BadRequest("id tidak valid")
 		}
 
 		ctx, cancel := helper.RequestContext(c)
@@ -197,18 +153,9 @@ func prestasiDelete(s *service.PrestasiService) fiber.Handler {
 
 		if err != nil {
 			if service.IsPrestasiNotFound(err) {
-				return helper.Fail(
-					c,
-					fiber.StatusNotFound,
-					"prestasi tidak ditemukan",
-				)
+				return helper.NotFound("prestasi tidak ditemukan")
 			}
-
-			return helper.Fail(
-				c,
-				fiber.StatusInternalServerError,
-				"gagal menghapus prestasi",
-			)
+			return helper.Internal(err)
 		}
 
 		return helper.NoContent(c)
@@ -218,27 +165,15 @@ func prestasiDelete(s *service.PrestasiService) fiber.Handler {
 // HEALTH CHECK
 func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		ctx, cancel := context.WithTimeout(
-			c.UserContext(),
-			2*time.Second,
-		)
+		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 		defer cancel()
 
 		if err := pool.Ping(ctx); err != nil {
-			return helper.Fail(
-				c,
-				fiber.StatusServiceUnavailable,
-				"database tidak dapat dihubungi",
-			)
+			return helper.ServiceUnavailable("database tidak dapat dihubungi")
 		}
 
-		return helper.Success(
-			c,
-			fiber.StatusOK,
-			"server dan database berjalan",
-			fiber.Map{
-				"timestamp": time.Now(),
-			},
-		)
+		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", fiber.Map{
+			"timestamp": time.Now(),
+		})
 	}
 }

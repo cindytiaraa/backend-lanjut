@@ -20,20 +20,11 @@ var (
 
 // StudentRepository adalah KONTRAK penyimpanan data student.
 type StudentRepository interface {
-	FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
+	FindAfterCursor(ctx context.Context, q model.CursorQuery) ([]model.Student, error)
 	FindByID(ctx context.Context, id int) (model.Student, error)
 	Create(ctx context.Context, s model.Student) (model.Student, error)
 	Update(ctx context.Context, s model.Student) (model.Student, error)
 	Delete(ctx context.Context, id int) error
-}
-
-// pemetaan dari nilai yang boleh dikirim klien ke nama kolom yang sebenarnya. ORDER BY tidak dapat memakai parameter, sehingga nama kolom terpaksa disisipkan sebagai teks.
-var kolomUrut = map[string]string{
-	"id":         "id",
-	"nim":        "nim",
-	"name":       "name",
-	"grade":      "grade",
-	"created_at": "created_at",
 }
 
 type studentPostgresRepository struct {
@@ -45,76 +36,55 @@ func NewStudentRepository(pool *pgxpool.Pool) StudentRepository {
 	return &studentPostgresRepository{pool: pool}
 }
 
-// buildFilter menyusun bagian WHERE beserta argumennya.
-// Nilai dari klien SELALU menjadi argumen ($1, $2, ...), tidak pernah disambung langsung ke dalam teks SQL.
-func buildFilter(q model.ListQuery) (string, []any) {
-	where := " WHERE 1 = 1"
+const studentColumns = "id, nim, name, grade, is_active, owner_id, created_at"
+
+
+func (r *studentPostgresRepository) FindAfterCursor(
+	ctx context.Context, q model.CursorQuery,
+) ([]model.Student, error) {
 	args := []any{}
+	where := " WHERE 1 = 1"
 
 	if q.Search != "" {
-		where += fmt.Sprintf(" AND (nim ILIKE $%d OR name ILIKE $%d)",
-			len(args)+1, len(args)+1)
 		args = append(args, "%"+q.Search+"%")
+		where += fmt.Sprintf(" AND (nim ILIKE $%d OR name ILIKE $%d)", len(args), len(args))
 	}
 
 	if q.IsActive != nil {
-		where += fmt.Sprintf(" AND is_active = $%d", len(args)+1)
 		args = append(args, *q.IsActive)
+		where += fmt.Sprintf(" AND is_active = $%d", len(args))
 	}
 
-	return where, args
-}
+	if q.After != nil {
+		args = append(args, q.After.CreatedAt, q.After.ID)
+		where += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
+	}
 
-func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error) {
-	where, args := buildFilter(q)
+	args = append(args, q.Limit+1)
 
-	// 1) Hitung total sebelum dipenggal, untuk keperluan meta.
-	var total int
-	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM students"+where, args...).Scan(&total)
+	query := fmt.Sprintf(
+		"SELECT %s FROM students%s ORDER BY created_at DESC, id DESC LIMIT $%d",
+		studentColumns, where, len(args))
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("menghitung student: %w", err)
-	}
-
-	// 2) Ambil satu halaman saja. Penyaringan, pengurutan, dan pemenggalan dikerjakan basis data, bukan oleh Go.
-	arah := "ASC"
-	if q.Order == "desc" {
-		arah = "DESC"
-	}
-
-	// Whitelist sort
-	kolom, ok := kolomUrut[q.Sort]
-	if !ok {
-		kolom = "id"
-	}
-
-	sqlText := fmt.Sprintf(
-		`SELECT id, nim, name, grade, is_active, owner_id, created_at
-		 FROM students%s
-		 ORDER BY %s %s
-		 LIMIT $%d OFFSET $%d`,
-		where, kolom, arah, len(args)+1, len(args)+2,
-	)
-	args = append(args, q.Limit, q.Offset())
-
-	rows, err := r.pool.Query(ctx, sqlText, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("mengambil daftar student: %w", err)
+		return nil, fmt.Errorf("mengambil daftar student: %w", err)
 	}
 	defer rows.Close()
 
-	hasil := []model.Student{}
+	result := []model.Student{}
 	for rows.Next() {
 		var s model.Student
 		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.OwnerID, &s.CreatedAt); err != nil {
-			return nil, 0, fmt.Errorf("membaca baris student: %w", err)
+			return nil, fmt.Errorf("membaca baris student: %w", err)
 		}
-		hasil = append(hasil, s)
+		result = append(result, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("membaca hasil query: %w", err)
+		return nil, fmt.Errorf("membaca hasil query: %w", err)
 	}
 
-	return hasil, total, nil
+	return result, nil
 }
 
 func (r *studentPostgresRepository) FindByID(ctx context.Context, id int) (model.Student, error) {
@@ -136,8 +106,7 @@ func (r *studentPostgresRepository) FindByID(ctx context.Context, id int) (model
 }
 
 func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student) (model.Student, error) {
-	// RETURNING membuat id dan created_at hasil buatan basis data
-	// langsung ikut kembali, tanpa perlu query kedua.
+
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO students (nim, name, grade, is_active, owner_id)
 		 VALUES ($1, $2, $3, $4, $5)
@@ -156,7 +125,7 @@ func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student)
 }
 
 func (r *studentPostgresRepository) Update(ctx context.Context, s model.Student) (model.Student, error) {
-	// RETURNING mengembalikan baris hasil perubahan dalam satu perjalanan, jadi field yang tidak ikut diubah (created_at) tetap terisi benar.
+	// RETURNING mengembalikan baris hasil perubahan dalam satu perjalanan
 	err := r.pool.QueryRow(ctx,
 		`UPDATE students SET nim = $1, name = $2, grade = $3, is_active = $4
 		 WHERE id = $5

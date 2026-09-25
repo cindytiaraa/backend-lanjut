@@ -8,19 +8,21 @@ type AuthUser struct {
 	Role     string `json:"role"`
 }
 
+// Validasi dipindahkan ke tag: required, min/max, dan dua custom validator
+// ("alphanum" bawaan library, "strongpassword" buatan sendiri di helper/validator.go).
 type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required,min=3,max=30,alphanum"`
+	Email    string `json:"email" validate:"required,email,max=120"`
+	Password string `json:"password" validate:"required,max=72,strongpassword"`
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token" validate:"required"`
 }
 
 type LogoutRequest struct {
