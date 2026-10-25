@@ -1,0 +1,339 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"strconv"
+
+	"github.com/gofiber/fiber/v2"
+
+	"latihan-repository/app/model"
+	"latihan-repository/app/repository"
+	"latihan-repository/helper"
+)
+
+// CourseService menangani kelas dan KRS.
+//
+// Pembagian tugas di dalam file ini:
+//   - method yang menerima *fiber.Ctx (List, Mine, Get, Enroll, Drop, Swap,
+//     UpdateQuota) hanya membaca permintaan, memanggil use case, lalu
+//     menyusun respons (peran controller);
+//   - method huruf kecil (enroll, drop, swap) menjalankan alur kerja di
+//     dalam transaction dan TIDAK mengenal Fiber (peran use case);
+//   - aturan murninya ada di course_rules.go.
+//
+// Transaction dibuka di SINI (service), bukan di repository: hanya service
+// yang tahu langkah mana yang harus berhasil bersama.
+type CourseService struct {
+	courses repository.CourseRepository
+	tx      *repository.TxManager
+}
+
+// NewCourseService menerima INTERFACE repository dan TxManager.
+func NewCourseService(courses repository.CourseRepository, tx *repository.TxManager) *CourseService {
+	return &CourseService{courses: courses, tx: tx}
+}
+
+// Kesalahan khusus layer service: aturan bisnis yang tidak diketahui repository.
+var errCreditLimit = errors.New("batas SKS terlampaui")
+
+// ---------- GET /courses ----------
+func (s *CourseService) List(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	courses, err := s.courses.FindAll(ctx)
+	if err != nil {
+		return helper.Internal(err)
+	}
+	return helper.Success(c, fiber.StatusOK, "daftar kelas berhasil diambil", courses)
+}
+
+// ---------- GET /courses/mine ----------
+func (s *CourseService) Mine(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("belum terautentikasi")
+	}
+
+	courses, err := s.courses.FindByStudent(ctx, current.UserID)
+	if err != nil {
+		return helper.Internal(err)
+	}
+
+	return helper.Success(c, fiber.StatusOK, "KRS berhasil diambil", fiber.Map{
+		"courses":       courses,
+		"total_credits": TotalCredits(courses),
+		"max_credits":   MaxCreditsPerSemester,
+	})
+}
+
+// ---------- GET /courses/:id ----------
+func (s *CourseService) Get(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	id, valid := helper.ParamID(c)
+	if !valid {
+		return helper.BadRequest("id harus berupa angka positif")
+	}
+
+	course, err := s.courses.FindByID(ctx, id)
+	if err != nil {
+		return translateCourseError(err)
+	}
+	return helper.Success(c, fiber.StatusOK, "kelas ditemukan", course)
+}
+
+// ---------- POST /courses/:id/enroll ----------
+func (s *CourseService) Enroll(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("belum terautentikasi")
+	}
+	courseID, valid := helper.ParamID(c)
+	if !valid {
+		return helper.BadRequest("id harus berupa angka positif")
+	}
+
+	enrolled, err := s.enroll(ctx, current.UserID, courseID)
+	if err != nil {
+		return translateCourseError(err)
+	}
+
+	return helper.Created(c, "berhasil mendaftar kelas", enrolled,
+		"/api/v1/courses/"+strconv.Itoa(courseID))
+}
+
+// enroll adalah use case pendaftaran kelas. Tidak mengenal Fiber.
+func (s *CourseService) enroll(ctx context.Context, userID, courseID int) (model.Course, error) {
+	var enrolled model.Course
+
+	err := s.tx.WithTx(ctx, func(tx repository.DBTX) error {
+		// Seluruh akses data di bawah ini WAJIB memakai repo, bukan
+		// s.courses. s.courses terikat pada pool: ia berjalan di luar
+		// transaction dan tidak ikut dibatalkan bila langkah berikutnya gagal.
+		repo := s.courses.WithTx(tx)
+
+		// 1. Kunci KRS milik mahasiswa ini. Request lain dari mahasiswa
+		//    yang SAMA harus menunggu sampai transaction ini selesai.
+		if err := repo.LockStudent(ctx, userID); err != nil {
+			return err
+		}
+
+		// 2. Periksa batas SKS. Aman, karena tidak ada request lain milik
+		//    mahasiswa ini yang dapat menambah SKS di antara pemeriksaan
+		//    dan penyimpanan.
+		course, err := repo.FindByID(ctx, courseID)
+		if err != nil {
+			return err
+		}
+		taken, err := repo.SumCredits(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if !WithinCreditLimit(taken, course.Credits) {
+			return errCreditLimit
+		}
+
+		// 3. Ambil satu kursi secara atomik.
+		enrolled, err = repo.IncrementEnrolled(ctx, courseID)
+		if err != nil {
+			return err
+		}
+
+		// 4. Catat pendaftarannya. Bila ternyata sudah terdaftar, error di
+		//    sini membatalkan juga penambahan kursi pada langkah 3.
+		return repo.InsertEnrollment(ctx, courseID, userID)
+	})
+
+	return enrolled, err
+}
+
+// ---------- DELETE /courses/:id/enroll ----------
+func (s *CourseService) Drop(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("belum terautentikasi")
+	}
+	courseID, valid := helper.ParamID(c)
+	if !valid {
+		return helper.BadRequest("id harus berupa angka positif")
+	}
+
+	if err := s.drop(ctx, current.UserID, courseID); err != nil {
+		return translateCourseError(err)
+	}
+	return helper.NoContent(c)
+}
+
+// drop adalah use case pembatalan kelas. Tidak mengenal Fiber.
+func (s *CourseService) drop(ctx context.Context, userID, courseID int) error {
+	return s.tx.WithTx(ctx, func(tx repository.DBTX) error {
+		repo := s.courses.WithTx(tx)
+
+		if err := repo.LockStudent(ctx, userID); err != nil {
+			return err
+		}
+		// Mengembalikan ErrNotEnrolled bila memang tidak terdaftar.
+		// Counter kelas diperbarui oleh trigger database untuk setiap DELETE,
+		// termasuk penghapusan akibat ON DELETE CASCADE.
+		if err := repo.DeleteEnrollment(ctx, courseID, userID); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// ---------- POST /enrollments/swap ----------
+func (s *CourseService) Swap(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Unauthorized("belum terautentikasi")
+	}
+
+	var req model.SwapRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequest("body harus berupa JSON yang valid")
+	}
+	if errs := helper.ValidateStruct(req); errs != nil {
+		return helper.Validation(errs)
+	}
+	// Business rules dipanggil, bukan ditulis ulang di sini.
+	if errs := ValidateSwap(req); errs != nil {
+		return helper.Validation(errs)
+	}
+
+	joined, err := s.swap(ctx, current.UserID, req)
+	if err != nil {
+		return translateCourseError(err)
+	}
+	return helper.Success(c, fiber.StatusOK, "berhasil pindah kelas", joined)
+}
+
+// swap adalah use case pindah kelas. Tidak mengenal Fiber.
+//
+// Pindah kelas adalah contoh terbaik mengapa transaction dibutuhkan:
+// keluar dari kelas lama dan masuk ke kelas baru harus terjadi
+// bersama-sama. Bila kelas baru ternyata penuh, mahasiswa harus TETAP
+// berada di kelas lamanya, bukan kehilangan keduanya.
+func (s *CourseService) swap(ctx context.Context, userID int, req model.SwapRequest) (model.Course, error) {
+	var joined model.Course
+
+	err := s.tx.WithTx(ctx, func(tx repository.DBTX) error {
+		repo := s.courses.WithTx(tx)
+
+		if err := repo.LockStudent(ctx, userID); err != nil {
+			return err
+		}
+
+		// Kunci KEDUA kelas lebih dulu, dalam urutan id menaik. Tanpa
+		// langkah ini, mahasiswa A yang pindah 1 -> 2 dan mahasiswa B
+		// yang pindah 2 -> 1 pada saat yang sama akan saling menunggu
+		// kunci milik satu sama lain: deadlock.
+		if err := repo.LockCourses(ctx, req.FromCourseID, req.ToCourseID); err != nil {
+			return err
+		}
+
+		from, err := repo.FindByID(ctx, req.FromCourseID)
+		if err != nil {
+			return err
+		}
+		to, err := repo.FindByID(ctx, req.ToCourseID)
+		if err != nil {
+			return err
+		}
+
+		taken, err := repo.SumCredits(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if CreditsAfterSwap(taken, from.Credits, to.Credits) > MaxCreditsPerSemester {
+			return errCreditLimit
+		}
+
+		if err := repo.DeleteEnrollment(ctx, req.FromCourseID, userID); err != nil {
+			return err
+		}
+		// Trigger DELETE memperbarui counter kelas lama dalam transaction ini.
+		joined, err = repo.IncrementEnrolled(ctx, req.ToCourseID)
+		if err != nil {
+			return err
+		}
+		return repo.InsertEnrollment(ctx, req.ToCourseID, userID)
+	})
+
+	return joined, err
+}
+
+// ---------- PATCH /courses/:id ----------
+// Dijaga middleware dengan permission course:manage.
+func (s *CourseService) UpdateQuota(c *fiber.Ctx) error {
+	ctx, cancel := helper.RequestContext(c)
+	defer cancel()
+
+	id, valid := helper.ParamID(c)
+	if !valid {
+		return helper.BadRequest("id harus berupa angka positif")
+	}
+
+	var req model.UpdateQuotaRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.BadRequest("body harus berupa JSON yang valid")
+	}
+	if errs := helper.ValidateStruct(req); errs != nil {
+		return helper.Validation(errs)
+	}
+
+	// Satu pernyataan tunggal di database sudah atomik dengan sendirinya,
+	// sehingga tidak perlu WithTx.
+	updated, err := s.courses.UpdateQuota(ctx, id, req.Quota, req.Version)
+	if err != nil {
+		return translateCourseError(err)
+	}
+	return helper.Success(c, fiber.StatusOK, "kuota berhasil diubah", updated)
+}
+
+// translateCourseError memetakan error milik repository dan service menjadi
+// AppError.
+//
+// Seluruh kegagalan aturan bisnis memakai 409 dengan kode yang berbeda:
+// permintaannya sah, tetapi keadaan data saat ini tidak mengizinkan.
+// Yang tidak dikenali menjadi 500, termasuk pelanggaran constraint pengaman
+// di database, karena constraint itu hanya terpicu bila kode kita sendiri
+// yang salah.
+func translateCourseError(err error) error {
+	switch {
+	case errors.Is(err, repository.ErrNotFound):
+		return helper.NotFound("kelas tidak ditemukan")
+	case errors.Is(err, repository.ErrCourseFull):
+		return helper.NewError(fiber.StatusConflict, "COURSE_FULL", "kuota kelas sudah penuh")
+	case errors.Is(err, repository.ErrDuplicate):
+		return helper.NewError(fiber.StatusConflict, "ALREADY_ENROLLED", "Anda sudah terdaftar di kelas ini")
+	case errors.Is(err, repository.ErrNotEnrolled):
+		return helper.NewError(fiber.StatusConflict, "NOT_ENROLLED", "Anda tidak terdaftar di kelas tersebut")
+	case errors.Is(err, errCreditLimit):
+		return helper.NewError(fiber.StatusConflict, "CREDIT_LIMIT_EXCEEDED",
+			"batas "+strconv.Itoa(MaxCreditsPerSemester)+" SKS terlampaui")
+	case errors.Is(err, repository.ErrVersionConflict):
+		return helper.NewError(fiber.StatusConflict, "VERSION_CONFLICT",
+			"data kelas sudah diubah pihak lain, muat ulang lalu coba lagi")
+	case errors.Is(err, repository.ErrQuotaBelowFilled):
+		return helper.NewError(fiber.StatusConflict, "QUOTA_BELOW_ENROLLED",
+			"kuota tidak boleh lebih kecil dari jumlah peserta saat ini")
+	default:
+		return helper.Internal(err)
+	}
+}
