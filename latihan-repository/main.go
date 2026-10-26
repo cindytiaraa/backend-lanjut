@@ -33,6 +33,11 @@ func main() {
 	userRepository := repository.NewUserRepository(pool)
 	refreshTokenRepository := repository.NewRefreshTokenRepository(pool)
 	roleRepository := repository.NewRoleRepository(pool)
+	courseRepository := repository.NewCourseRepository(pool)
+	supervisorRepository := repository.NewSupervisorRepository(pool)
+
+	// TxManager: satu-satunya pintu untuk membuka dan menutup transaction.
+	txManager := repository.NewTxManager(pool)
 
 	rawPermissions, err := roleRepository.LoadPermissions(context.Background())
 	if err != nil {
@@ -45,6 +50,8 @@ func main() {
 
 	studentService := service.NewStudentService(studentRepository, permissions)
 	prestasiService := service.NewPrestasiService(prestasiRepository)
+	courseService := service.NewCourseService(courseRepository, txManager)
+	supervisorService := service.NewSupervisorService(supervisorRepository, txManager)
 
 	// JWT
 	jwtSecret := config.GetEnv("JWT_SECRET", "")
@@ -87,6 +94,8 @@ func main() {
 		pool,
 		studentService,
 		prestasiService,
+		courseService,
+		supervisorService,
 		authService,
 		jwtManager,
 		permissions,

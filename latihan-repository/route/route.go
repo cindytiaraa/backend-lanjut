@@ -20,6 +20,8 @@ func Register(
 	pool *pgxpool.Pool,
 	studentService *service.StudentService,
 	prestasiService *service.PrestasiService,
+	courseService *service.CourseService,
+	supervisorService *service.SupervisorService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
 	perms *helper.PermissionSet,
@@ -62,6 +64,47 @@ func Register(
 	students.Put("/:id", studentService.Replace)
 	students.Patch("/:id", studentService.Patch)
 	students.Delete("/:id", middleware.RequirePermission(perms, "student:delete"), studentService.Delete)
+
+	// KELAS DAN KRS (Modul 9)
+	courses := api.Group(
+		"/courses",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+
+	// "/mine" didaftarkan SEBELUM "/:id". Fiber mencocokkan route sesuai
+	// urutan pendaftaran; bila dibalik, "mine" akan dianggap sebagai :id.
+	courses.Get("/", courseService.List)
+	courses.Get("/mine", courseService.Mine)
+	courses.Get("/:id", courseService.Get)
+	courses.Post("/:id/enroll", courseService.Enroll)
+	courses.Delete("/:id/enroll", courseService.Drop)
+	courses.Patch("/:id", middleware.RequirePermission(perms, "course:manage"), courseService.UpdateQuota)
+
+	enrollments := api.Group(
+		"/enrollments",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+	enrollments.Post("/swap", courseService.Swap)
+
+	// PEMBIMBING TUGAS AKHIR (Tugas D.2)
+	supervisors := api.Group(
+		"/supervisors",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+	supervisors.Get("/", supervisorService.List)
+	supervisors.Get("/:id", supervisorService.Get)
+	supervisors.Post("/:id/assign", middleware.RequirePermission(perms, "supervision:manage"), supervisorService.Assign)
+	supervisors.Patch("/:id", middleware.RequirePermission(perms, "supervision:manage"), supervisorService.UpdateQuota)
+
+	supervisions := api.Group(
+		"/supervisions",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+	supervisions.Post("/switch", middleware.RequirePermission(perms, "supervision:manage"), supervisorService.Switch)
 
 	// PRESTASI
 	prestasi := api.Group(
