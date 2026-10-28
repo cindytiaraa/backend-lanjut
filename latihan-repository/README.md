@@ -31,4 +31,4 @@ Pemeriksaan build, analisis statis, dan unit test Go telah lulus pada source saa
 4. Driver MongoDB v2 sudah tercantum di `go.mod` dan `go.sum`; tidak perlu menambahkannya lagi.
 5. Untuk izin moderasi ulasan admin, jalankan `psql -U postgres -d praktikum_backend -f migrations/010_review_permissions.sql`.
 
-Endpoint portofolio: `/api/v1/students/:id/portfolio` (termasuk pengelolaan `/projects`) dan `/api/v1/portfolios/stats/technologies`. Endpoint ulasan: `/api/v1/courses/:id/reviews` (termasuk `/summary`) dan `/api/v1/reviews/:id` (termasuk `/replies` dan `/helpful`). Skrip bukti portofolio ada di `scripts/` dan mewajibkan `ALLOW_PORTFOLIO_MUTATION=1` karena mengubah data student yang dipilih.
+Endpoint portofolio: `/api/v1/students/:id/portfolio` (termasuk pengelolaan `/projects`) dan `/api/v1/portfolios/stats/technologies`. Endpoint ulasan: `/api/v1/courses/:id/reviews` (termasuk `/summary`) dan `/api/v1/reviews/:id` (termasuk `/replies` dan `/helpful`).
