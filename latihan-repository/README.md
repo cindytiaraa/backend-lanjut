@@ -2,7 +2,7 @@
 
 ## Gambaran proyek
 
-Proyek ini adalah layanan backend untuk mendukung pengelolaan data akademik mahasiswa. API dibangun dengan Go dan Fiber. PostgreSQL menyimpan data inti (akun, mahasiswa, kelas dan KRS, pembimbing); MongoDB menyimpan portofolio mahasiswa berbentuk dokumen.
+Proyek ini adalah layanan backend untuk mendukung pengelolaan data akademik mahasiswa. API dibangun dengan Go dan Fiber. PostgreSQL menyimpan data inti (akun, mahasiswa, kelas dan KRS, pembimbing); MongoDB menyimpan portofolio dan ulasan kelas berbentuk dokumen.
 
 ## Cakupan layanan
 
@@ -12,6 +12,7 @@ Proyek ini adalah layanan backend untuk mendukung pengelolaan data akademik maha
 - **Kelas dan KRS:** melihat kelas, mendaftar atau membatalkan kelas, serta berpindah kelas dengan perlindungan terhadap kuota dan batas SKS.
 - **Pembimbing tugas akhir:** melihat pembimbing, menetapkan atau mengganti pembimbing, serta mengelola kuota bimbingan bagi pengguna berizin.
 - **Portofolio mahasiswa (MongoDB):** satu dokumen per mahasiswa berisi proyek dan sertifikat, batas 20 proyek yang dijaga atomik, dan statistik 10 teknologi terpopuler.
+- **Ulasan kelas (MongoDB):** rating dan komentar peserta kelas, tag, balasan dan penanda membantu yang diperbarui secara atomik, serta ringkasan rating.
 
 ## Keandalan dan perlindungan data
 
@@ -26,7 +27,8 @@ Pemeriksaan build, analisis statis, dan unit test Go telah lulus pada source saa
 
 1. Pasang MongoDB (lihat Modul 10, Langkah 1) atau pakai MongoDB Atlas.
 2. Isi `MONGO_URI` dan `MONGO_DATABASE` di `.env` (contoh di `.env.example`).
-3. Jalankan aplikasi. Index MongoDB untuk portofolio dibuat otomatis saat aplikasi menyala.
+3. Jalankan aplikasi. Index MongoDB untuk portofolio dan ulasan dibuat otomatis saat aplikasi menyala.
 4. Driver MongoDB v2 sudah tercantum di `go.mod` dan `go.sum`; tidak perlu menambahkannya lagi.
+5. Untuk izin moderasi ulasan admin, jalankan `psql -U postgres -d praktikum_backend -f migrations/010_review_permissions.sql`.
 
-Endpoint baru: `/api/v1/students/:id/portfolio` (termasuk pengelolaan `/projects`) dan `/api/v1/portfolios/stats/technologies`. Skrip bukti portofolio ada di `scripts/` dan mewajibkan `ALLOW_PORTFOLIO_MUTATION=1` karena mengubah data student yang dipilih.
+Endpoint portofolio: `/api/v1/students/:id/portfolio` (termasuk pengelolaan `/projects`) dan `/api/v1/portfolios/stats/technologies`. Endpoint ulasan: `/api/v1/courses/:id/reviews` (termasuk `/summary`) dan `/api/v1/reviews/:id` (termasuk `/replies` dan `/helpful`). Skrip bukti portofolio ada di `scripts/` dan mewajibkan `ALLOW_PORTFOLIO_MUTATION=1` karena mengubah data student yang dipilih.

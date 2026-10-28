@@ -27,6 +27,9 @@ type CourseRepository interface {
 	FindAll(ctx context.Context) ([]model.Course, error)
 	FindByID(ctx context.Context, id int) (model.Course, error)
 	FindByStudent(ctx context.Context, userID int) ([]model.Course, error)
+	// IsEnrolled dipakai layanan ulasan (MongoDB) untuk memeriksa apakah
+	// seorang user terdaftar di sebuah kelas.
+	IsEnrolled(ctx context.Context, courseID, userID int) (bool, error)
 
 	InsertEnrollment(ctx context.Context, courseID, userID int) error
 	LockStudent(ctx context.Context, userID int) error
@@ -256,4 +259,17 @@ func (r *coursePostgresRepository) UpdateQuota(ctx context.Context, id, quota, v
 		return model.Course{}, ErrVersionConflict
 	}
 	return model.Course{}, ErrQuotaBelowFilled
+}
+
+// IsEnrolled dipakai layer lain, misalnya layanan ulasan di MongoDB, yang
+// perlu tahu apakah seorang mahasiswa terdaftar di sebuah kelas.
+func (r *coursePostgresRepository) IsEnrolled(ctx context.Context, courseID, userID int) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM enrollments WHERE course_id = $1 AND user_id = $2)",
+		courseID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("memeriksa pendaftaran: %w", err)
+	}
+	return exists, nil
 }

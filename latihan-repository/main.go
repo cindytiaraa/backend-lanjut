@@ -57,6 +57,12 @@ func main() {
 			slog.String("collection", "student_portfolios"), slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+	reviewRepository := repository.NewReviewRepository(mongoDB)
+	if err := reviewRepository.EnsureIndexes(context.Background()); err != nil {
+		logger.Error("gagal membuat index MongoDB",
+			slog.String("collection", "course_reviews"), slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 
 	// TxManager: satu-satunya pintu untuk membuka dan menutup transaction.
 	txManager := repository.NewTxManager(pool)
@@ -75,6 +81,7 @@ func main() {
 	courseService := service.NewCourseService(courseRepository, txManager)
 	supervisorService := service.NewSupervisorService(supervisorRepository, txManager)
 	portfolioService := service.NewPortfolioService(portfolioRepository, studentRepository, permissions)
+	reviewService := service.NewReviewService(reviewRepository, courseRepository, permissions)
 
 	// JWT
 	jwtSecret := config.GetEnv("JWT_SECRET", "")
@@ -121,6 +128,7 @@ func main() {
 		courseService,
 		supervisorService,
 		portfolioService,
+		reviewService,
 		authService,
 		jwtManager,
 		permissions,

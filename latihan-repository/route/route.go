@@ -25,6 +25,7 @@ func Register(
 	courseService *service.CourseService,
 	supervisorService *service.SupervisorService,
 	portfolioService *service.PortfolioService,
+	reviewService *service.ReviewService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
 	perms *helper.PermissionSet,
@@ -97,6 +98,22 @@ func Register(
 	courses.Post("/:id/enroll", courseService.Enroll)
 	courses.Delete("/:id/enroll", courseService.Drop)
 	courses.Patch("/:id", middleware.RequirePermission(perms, "course:manage"), courseService.UpdateQuota)
+
+	// ULASAN KELAS (Modul 10, MongoDB)
+	courses.Get("/:id/reviews", reviewService.ListByCourse)
+	courses.Get("/:id/reviews/summary", reviewService.Summary)
+	courses.Post("/:id/reviews", reviewService.Create)
+
+	reviews := api.Group(
+		"/reviews",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+	reviews.Get("/:id", reviewService.Get)
+	reviews.Patch("/:id", reviewService.Update)
+	reviews.Delete("/:id", reviewService.Delete)
+	reviews.Post("/:id/replies", reviewService.Reply)
+	reviews.Post("/:id/helpful", reviewService.MarkHelpful)
 
 	enrollments := api.Group(
 		"/enrollments",
