@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"latihan-repository/app/model"
 	"latihan-repository/app/service"
@@ -18,10 +19,12 @@ import (
 func Register(
 	app *fiber.App,
 	pool *pgxpool.Pool,
+	mongoClient *mongo.Client,
 	studentService *service.StudentService,
 	prestasiService *service.PrestasiService,
 	courseService *service.CourseService,
 	supervisorService *service.SupervisorService,
+	portfolioService *service.PortfolioService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
 	perms *helper.PermissionSet,
@@ -34,7 +37,7 @@ func Register(
 	api := app.Group("/api/v1")
 
 	// Health check
-	api.Get("/health", healthCheck(pool))
+	api.Get("/health", healthCheck(pool, mongoClient))
 
 	// AUTH
 	auth := api.Group("/auth")
@@ -64,6 +67,20 @@ func Register(
 	students.Put("/:id", studentService.Replace)
 	students.Patch("/:id", studentService.Patch)
 	students.Delete("/:id", middleware.RequirePermission(perms, "student:delete"), studentService.Delete)
+
+	// PORTOFOLIO MAHASISWA (Modul 10, Tugas C). Data mahasiswa di PostgreSQL,
+	// portofolio di MongoDB.
+	students.Get("/:id/portfolio", portfolioService.Get)
+	students.Put("/:id/portfolio", portfolioService.Replace)
+	students.Post("/:id/portfolio/projects", portfolioService.AddProject)
+	students.Delete("/:id/portfolio/projects/:projectId", portfolioService.RemoveProject)
+
+	portfolios := api.Group(
+		"/portfolios",
+		middleware.RequireAuth(jwtManager),
+		middleware.RequireJSON,
+	)
+	portfolios.Get("/stats/technologies", portfolioService.TopTechnologies)
 
 	// KELAS DAN KRS (Modul 9)
 	courses := api.Group(
@@ -205,17 +222,22 @@ func prestasiDelete(s *service.PrestasiService) fiber.Handler {
 	}
 }
 
-// HEALTH CHECK
-func healthCheck(pool *pgxpool.Pool) fiber.Handler {
+// HEALTH CHECK kini memeriksa DUA database. Aplikasi dianggap sehat hanya
+// bila keduanya dapat dihubungi, dan pesan kegagalannya menyebut yang mana.
+func healthCheck(pool *pgxpool.Pool, mongoClient *mongo.Client) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
 		defer cancel()
 
 		if err := pool.Ping(ctx); err != nil {
-			return helper.ServiceUnavailable("database tidak dapat dihubungi")
+			return helper.ServiceUnavailable("PostgreSQL tidak dapat dihubungi")
 		}
 
-		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", fiber.Map{
+		if err := mongoClient.Ping(ctx, nil); err != nil {
+			return helper.ServiceUnavailable("MongoDB tidak dapat dihubungi")
+		}
+
+		return helper.Success(c, fiber.StatusOK, "server, PostgreSQL, dan MongoDB berjalan", fiber.Map{
 			"timestamp": time.Now(),
 		})
 	}

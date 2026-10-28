@@ -27,6 +27,21 @@ func main() {
 	}
 	defer pool.Close()
 
+	mongoClient, err := database.NewMongoClient(context.Background())
+	if err != nil {
+		logger.Error("gagal terhubung ke MongoDB", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	// Disconnect menutup seluruh koneksi di pool milik driver. Diberi batas
+	// waktu sendiri, karena context milik request sudah tidak berlaku saat
+	// aplikasi berhenti.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mongoClient.Disconnect(ctx)
+	}()
+	mongoDB := mongoClient.Database(config.GetEnv("MONGO_DATABASE", "praktikum_backend"))
+
 	// Repository
 	studentRepository := repository.NewStudentRepository(pool)
 	prestasiRepository := repository.NewPrestasiRepository(pool)
@@ -35,6 +50,13 @@ func main() {
 	roleRepository := repository.NewRoleRepository(pool)
 	courseRepository := repository.NewCourseRepository(pool)
 	supervisorRepository := repository.NewSupervisorRepository(pool)
+
+	portfolioRepository := repository.NewPortfolioRepository(mongoDB)
+	if err := portfolioRepository.EnsureIndexes(context.Background()); err != nil {
+		logger.Error("gagal membuat index MongoDB",
+			slog.String("collection", "student_portfolios"), slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 
 	// TxManager: satu-satunya pintu untuk membuka dan menutup transaction.
 	txManager := repository.NewTxManager(pool)
@@ -52,6 +74,7 @@ func main() {
 	prestasiService := service.NewPrestasiService(prestasiRepository)
 	courseService := service.NewCourseService(courseRepository, txManager)
 	supervisorService := service.NewSupervisorService(supervisorRepository, txManager)
+	portfolioService := service.NewPortfolioService(portfolioRepository, studentRepository, permissions)
 
 	// JWT
 	jwtSecret := config.GetEnv("JWT_SECRET", "")
@@ -92,10 +115,12 @@ func main() {
 	app := config.NewApp(
 		logger,
 		pool,
+		mongoClient,
 		studentService,
 		prestasiService,
 		courseService,
 		supervisorService,
+		portfolioService,
 		authService,
 		jwtManager,
 		permissions,

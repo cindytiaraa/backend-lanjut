@@ -2,6 +2,7 @@ package helper
 
 import (
 	"errors"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
@@ -25,6 +26,13 @@ func newValidator() *validator.Validate {
 
 	_ = v.RegisterValidation("nim", func(fl validator.FieldLevel) bool {
 		return isValidNIM(fl.Field().String())
+	})
+
+	// httpurl hanya menerima http/https. Tag bawaan "url" juga menerima skema
+	// seperti javascript: atau file:, berbahaya bila tautan ditampilkan client.
+	_ = v.RegisterValidation("httpurl", func(fl validator.FieldLevel) bool {
+		u, err := url.Parse(fl.Field().String())
+		return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 	})
 
 	_ = v.RegisterValidation("strongpassword", func(fl validator.FieldLevel) bool {
@@ -67,12 +75,27 @@ func ValidateStruct(s any) map[string]string {
 
 	result := make(map[string]string, len(fieldErrors))
 	for _, fe := range fieldErrors {
-		if _, exists := result[fe.Field()]; !exists {
-			result[fe.Field()] = messageFor(fe)
+		key := fieldKey(fe)
+		if _, exists := result[key]; !exists {
+			result[key] = messageFor(fe)
 		}
 	}
 
 	return result
+}
+
+// fieldKey memberi nama field yang menyertakan posisinya pada data bersarang,
+// misalnya "projects[1].title". Field() saja hanya menghasilkan "title",
+// sehingga galat dua proyek berbeda saling menimpa.
+func fieldKey(fe validator.FieldError) string {
+	ns := fe.Namespace()
+	if i := strings.Index(ns, "."); i >= 0 {
+		ns = ns[i+1:]
+	}
+	if ns == "" {
+		return fe.Field()
+	}
+	return ns
 }
 
 func messageFor(fe validator.FieldError) string {
@@ -82,15 +105,25 @@ func messageFor(fe validator.FieldError) string {
 	case "email":
 		return "format email tidak valid"
 	case "min":
-		if fe.Kind() == reflect.String {
+		switch fe.Kind() {
+		case reflect.String:
 			return "minimal " + fe.Param() + " karakter"
+		case reflect.Slice, reflect.Array, reflect.Map:
+			return "minimal " + fe.Param() + " item"
 		}
 		return "nilai minimal " + fe.Param()
 	case "max":
-		if fe.Kind() == reflect.String {
+		switch fe.Kind() {
+		case reflect.String:
 			return "maksimal " + fe.Param() + " karakter"
+		case reflect.Slice, reflect.Array, reflect.Map:
+			return "maksimal " + fe.Param() + " item"
 		}
 		return "nilai maksimal " + fe.Param()
+	case "datetime":
+		return "format tanggal harus YYYY-MM-DD"
+	case "httpurl":
+		return "harus berupa tautan http:// atau https://"
 	case "alphanum":
 		return "hanya boleh berisi huruf dan angka"
 	case "nim":

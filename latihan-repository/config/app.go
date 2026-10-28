@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"latihan-repository/app/model"
 	"latihan-repository/app/service"
@@ -18,10 +19,12 @@ import (
 func NewApp(
 	logger *slog.Logger,
 	pool *pgxpool.Pool,
+	mongoClient *mongo.Client,
 	studentService *service.StudentService,
 	prestasiService *service.PrestasiService,
 	courseService *service.CourseService,
 	supervisorService *service.SupervisorService,
+	portfolioService *service.PortfolioService,
 	authService *service.AuthService,
 	jwtManager *helper.JWTManager,
 	permissions *helper.PermissionSet,
@@ -41,10 +44,12 @@ func NewApp(
 	route.Register(
 		app,
 		pool,
+		mongoClient,
 		studentService,
 		prestasiService,
 		courseService,
 		supervisorService,
+		portfolioService,
 		authService,
 		jwtManager,
 		permissions,
